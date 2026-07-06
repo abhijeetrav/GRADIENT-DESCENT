@@ -1,0 +1,582 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Gradient Descent — Optimizer Trajectories</title>
+<style>
+  :root{
+    --bg:#0b1220;
+    --panel:#0f1830;
+    --panel-line:#1e2c4a;
+    --ink:#e8edf5;
+    --muted:#7c8aa3;
+    --sgd:#20263a;
+    --sgd-ring:#5b6580;
+    --momentum:#3b82f6;
+    --rmsprop:#ff8a5b;
+    --adam:#ffd23f;
+    --mono: ui-monospace, "IBM Plex Mono", "SF Mono", Menlo, Consolas, monospace;
+    --sans: -apple-system, "Segoe UI", "Inter", system-ui, sans-serif;
+  }
+  *{box-sizing:border-box;}
+  html,body{
+    margin:0; padding:0; height:100%;
+    background:var(--bg);
+    font-family:var(--sans);
+    color:var(--ink);
+    overflow:hidden;
+  }
+  #app{
+    display:flex; flex-direction:column;
+    height:100vh; width:100vw;
+  }
+  header{
+    display:flex; align-items:baseline; justify-content:space-between;
+    padding:16px 22px 10px 22px;
+    border-bottom:1px solid var(--panel-line);
+    background:linear-gradient(to bottom, var(--panel), rgba(15,24,48,0.4));
+    flex-shrink:0;
+    gap:16px;
+  }
+  .title-block h1{
+    margin:0;
+    font-size:15px;
+    letter-spacing:0.14em;
+    font-weight:700;
+    text-transform:uppercase;
+    color:var(--ink);
+  }
+  .title-block p{
+    margin:2px 0 0 0;
+    font-size:12px;
+    color:var(--muted);
+    letter-spacing:0.02em;
+  }
+  .readout{
+    display:flex; gap:22px;
+    font-family:var(--mono);
+    font-size:11.5px;
+    color:var(--muted);
+    flex-wrap:wrap;
+    justify-content:flex-end;
+  }
+  .readout .metric{ text-align:right; min-width:64px; }
+  .readout .metric b{
+    display:block;
+    color:var(--ink);
+    font-size:14px;
+    font-weight:600;
+    letter-spacing:0;
+  }
+  .readout .metric span{
+    color:var(--muted);
+    font-size:9.5px;
+    letter-spacing:0.12em;
+    text-transform:uppercase;
+  }
+  main{
+    position:relative;
+    flex:1;
+    min-height:0;
+  }
+  #canvasWrap{
+    position:absolute; inset:0;
+  }
+  canvas{
+    position:absolute; top:0; left:0;
+    width:100%; height:100%;
+    cursor: crosshair;
+  }
+  #hint{
+    position:absolute;
+    top:16px; left:50%;
+    transform:translateX(-50%);
+    background:rgba(11,18,32,0.72);
+    border:1px solid var(--panel-line);
+    padding:7px 14px;
+    border-radius:999px;
+    font-size:12px;
+    color:var(--ink);
+    letter-spacing:0.02em;
+    pointer-events:none;
+    transition:opacity 0.6s ease;
+    backdrop-filter: blur(4px);
+  }
+  #hint.hidden{ opacity:0; }
+  footer{
+    flex-shrink:0;
+    display:flex;
+    align-items:center;
+    justify-content:space-between;
+    gap:18px;
+    padding:12px 22px;
+    background:linear-gradient(to top, var(--panel), rgba(15,24,48,0.2));
+    border-top:1px solid var(--panel-line);
+  }
+  #legend{
+    display:flex;
+    gap:26px;
+    flex-wrap:wrap;
+  }
+  .toggle{
+    display:flex;
+    align-items:center;
+    gap:9px;
+    cursor:pointer;
+    user-select:none;
+    background:none;
+    border:none;
+    padding:4px 2px;
+    font-family:var(--sans);
+  }
+  .toggle .dot{
+    width:15px; height:15px;
+    border-radius:50%;
+    border:2px solid var(--muted);
+    background:transparent;
+    transition:all 0.15s ease;
+    flex-shrink:0;
+  }
+  .toggle span.name{
+    font-size:13px;
+    color:var(--muted);
+    letter-spacing:0.01em;
+    transition:color 0.15s ease;
+    font-weight:500;
+  }
+  .toggle.active span.name{ color:var(--ink); }
+  .toggle[data-key="sgd"].active .dot{ background:var(--sgd); border-color:var(--sgd-ring); }
+  .toggle[data-key="momentum"].active .dot{ background:var(--momentum); border-color:var(--momentum); box-shadow:0 0 8px rgba(59,130,246,0.6); }
+  .toggle[data-key="rmsprop"].active .dot{ background:var(--rmsprop); border-color:var(--rmsprop); box-shadow:0 0 8px rgba(255,138,91,0.6); }
+  .toggle[data-key="adam"].active .dot{ background:var(--adam); border-color:var(--adam); box-shadow:0 0 8px rgba(255,210,63,0.6); }
+
+  #resetBtn{
+    font-family:var(--mono);
+    font-size:11px;
+    letter-spacing:0.08em;
+    text-transform:uppercase;
+    color:var(--muted);
+    background:transparent;
+    border:1px solid var(--panel-line);
+    border-radius:6px;
+    padding:8px 14px;
+    cursor:pointer;
+    transition:all 0.15s ease;
+    flex-shrink:0;
+  }
+  #resetBtn:hover{ color:var(--ink); border-color:var(--muted); }
+
+  @media (max-width:640px){
+    header{ flex-direction:column; align-items:flex-start; }
+    .readout{ justify-content:flex-start; gap:16px; }
+    footer{ flex-wrap:wrap; }
+    #legend{ gap:16px; }
+  }
+</style>
+</head>
+<body>
+<div id="app">
+  <header>
+    <div class="title-block">
+      <h1>Gradient Descent</h1>
+      <p>Optimizer trajectories on a synthetic loss surface</p>
+    </div>
+    <div class="readout">
+      <div class="metric"><b id="rStep">0</b><span>Step</span></div>
+      <div class="metric"><b id="rLoss">–</b><span>Min Loss</span></div>
+      <div class="metric"><b id="rActive">0</b><span>Active</span></div>
+    </div>
+  </header>
+  <main>
+    <div id="canvasWrap">
+      <canvas id="heatmap"></canvas>
+      <canvas id="paths"></canvas>
+    </div>
+    <div id="hint">Click or drag anywhere to drop a starting point</div>
+  </main>
+  <footer>
+    <div id="legend">
+      <button class="toggle active" data-key="sgd"><span class="dot"></span><span class="name">SGD</span></button>
+      <button class="toggle active" data-key="momentum"><span class="dot"></span><span class="name">Momentum</span></button>
+      <button class="toggle active" data-key="rmsprop"><span class="dot"></span><span class="name">RMSProp</span></button>
+      <button class="toggle active" data-key="adam"><span class="dot"></span><span class="name">Adam</span></button>
+    </div>
+    <button id="resetBtn">Reset</button>
+  </footer>
+</div>
+
+<script>
+(function(){
+  const heatCanvas = document.getElementById('heatmap');
+  const pathCanvas = document.getElementById('paths');
+  const heatCtx = heatCanvas.getContext('2d');
+  const pathCtx = pathCanvas.getContext('2d');
+  const wrap = document.getElementById('canvasWrap');
+  const hint = document.getElementById('hint');
+  const rStep = document.getElementById('rStep');
+  const rLoss = document.getElementById('rLoss');
+  const rActive = document.getElementById('rActive');
+
+  // ---------- Loss surface ----------
+  // Domain: x in [-3.2, 3.2], y in [-1.35, 1.35]
+  const DOMAIN = { xmin:-3.2, xmax:3.2, ymin:-1.35, ymax:1.35 };
+
+  function loss(x,y){
+    const g1 = Math.exp(-(3*(x+1.4)*(x+1.4) + 8*y*y));
+    const g2 = Math.exp(-(2*(x-1.8)*(x-1.8) + 6*y*y));
+    return 0.15*x*x + 0.6*y*y - 1.2*g1 - 0.9*g2;
+  }
+  function grad(x,y){
+    const g1 = Math.exp(-(3*(x+1.4)*(x+1.4) + 8*y*y));
+    const g2 = Math.exp(-(2*(x-1.8)*(x-1.8) + 6*y*y));
+    let dx = 0.3*x + 7.2*g1*(x+1.4) + 3.6*g2*(x-1.8);
+    let dy = 1.2*y + 19.2*g1*y + 10.8*g2*y;
+    return [dx,dy];
+  }
+
+  // sample range for color normalization
+  let fmin=Infinity, fmax=-Infinity;
+  for(let i=0;i<=40;i++){
+    for(let j=0;j<=40;j++){
+      const x = DOMAIN.xmin + (DOMAIN.xmax-DOMAIN.xmin)*i/40;
+      const y = DOMAIN.ymin + (DOMAIN.ymax-DOMAIN.ymin)*j/40;
+      const f = loss(x,y);
+      if(f<fmin) fmin=f;
+      if(f>fmax) fmax=f;
+    }
+  }
+
+  // Color stops: deep blue (high loss) -> teal -> cyan -> pale yellow-green (low loss)
+  const STOPS = [
+    {t:0.00, c:[22,45,74]},
+    {t:0.22, c:[26,74,102]},
+    {t:0.45, c:[45,120,138]},
+    {t:0.66, c:[92,175,168]},
+    {t:0.84, c:[189,214,150]},
+    {t:1.00, c:[242,240,179]}
+  ];
+  function colorFor(t){
+    t = Math.max(0, Math.min(1,t));
+    for(let i=0;i<STOPS.length-1;i++){
+      const a = STOPS[i], b = STOPS[i+1];
+      if(t>=a.t && t<=b.t){
+        const localT = (t-a.t)/(b.t-a.t || 1);
+        return [
+          Math.round(a.c[0]+(b.c[0]-a.c[0])*localT),
+          Math.round(a.c[1]+(b.c[1]-a.c[1])*localT),
+          Math.round(a.c[2]+(b.c[2]-a.c[2])*localT)
+        ];
+      }
+    }
+    return STOPS[STOPS.length-1].c;
+  }
+
+  const RINGS = 14;
+  function renderHeatmap(){
+    const w = heatCanvas.width, h = heatCanvas.height;
+    const off = document.createElement('canvas');
+    const RES_X = 180, RES_Y = 90;
+    off.width = RES_X; off.height = RES_Y;
+    const octx = off.getContext('2d');
+    const img = octx.createImageData(RES_X, RES_Y);
+    for(let j=0;j<RES_Y;j++){
+      for(let i=0;i<RES_X;i++){
+        const x = DOMAIN.xmin + (DOMAIN.xmax-DOMAIN.xmin)*i/(RES_X-1);
+        const y = DOMAIN.ymin + (DOMAIN.ymax-DOMAIN.ymin)*j/(RES_Y-1);
+        const f = loss(x,y);
+        let t = (fmax - f) / (fmax - fmin); // invert: low loss -> high t (bright)
+        t = Math.max(0, Math.min(1,t));
+        // quantize into rings for a contour-band look, but soften banding slightly
+        const banded = Math.floor(t*RINGS)/RINGS;
+        const smooth = banded*0.72 + t*0.28;
+        const [r,g,b] = colorFor(smooth);
+        const idx = (j*RES_X+i)*4;
+        img.data[idx]=r; img.data[idx+1]=g; img.data[idx+2]=b; img.data[idx+3]=255;
+      }
+    }
+    octx.putImageData(img,0,0);
+    heatCtx.imageSmoothingEnabled = true;
+    heatCtx.clearRect(0,0,w,h);
+    heatCtx.drawImage(off,0,0,w,h);
+
+    // subtle vignette for depth
+    const vg = heatCtx.createRadialGradient(w*0.5,h*0.5,h*0.15,w*0.5,h*0.5,w*0.62);
+    vg.addColorStop(0,'rgba(0,0,0,0)');
+    vg.addColorStop(1,'rgba(0,0,0,0.18)');
+    heatCtx.fillStyle = vg;
+    heatCtx.fillRect(0,0,w,h);
+  }
+
+  // ---------- coordinate mapping ----------
+  function domainToScreen(x,y){
+    const w = pathCanvas.width, h = pathCanvas.height;
+    const sx = (x - DOMAIN.xmin)/(DOMAIN.xmax-DOMAIN.xmin) * w;
+    const sy = (y - DOMAIN.ymin)/(DOMAIN.ymax-DOMAIN.ymin) * h;
+    return [sx, sy];
+  }
+  function screenToDomain(sx,sy){
+    const w = pathCanvas.width, h = pathCanvas.height;
+    const x = DOMAIN.xmin + (sx/w)*(DOMAIN.xmax-DOMAIN.xmin);
+    const y = DOMAIN.ymin + (sy/h)*(DOMAIN.ymax-DOMAIN.ymin);
+    return [x,y];
+  }
+
+  // ---------- optimizers ----------
+  const COLORS = {
+    sgd:'#20263a',
+    momentum:'#3b82f6',
+    rmsprop:'#ff8a5b',
+    adam:'#ffd23f'
+  };
+  const RING_COLORS = {
+    sgd:'#5b6580', momentum:'#3b82f6', rmsprop:'#ff8a5b', adam:'#ffd23f'
+  };
+
+  function clipGrad(dx,dy){
+    const norm = Math.sqrt(dx*dx+dy*dy);
+    const maxNorm = 6;
+    if(norm>maxNorm){
+      dx = dx/norm*maxNorm;
+      dy = dy/norm*maxNorm;
+    }
+    return [dx,dy];
+  }
+
+  function makeOptimizer(key, x0, y0){
+    const state = { x:x0, y:y0, path:[[x0,y0]], done:false, t:0 };
+    if(key==='momentum'){ state.vx=0; state.vy=0; }
+    if(key==='rmsprop'){ state.sx=0; state.sy=0; }
+    if(key==='adam'){ state.mx=0; state.my=0; state.vx=0; state.vy=0; }
+    return state;
+  }
+
+  const HP = {
+    sgd:      { lr:0.05 },
+    momentum: { lr:0.032, beta:0.86 },
+    rmsprop:  { lr:0.09, decay:0.9, eps:1e-8 },
+    adam:     { lr:0.09, b1:0.9, b2:0.999, eps:1e-8 }
+  };
+
+  function step(key, s){
+    if(s.done) return;
+    let [dx,dy] = grad(s.x, s.y);
+    [dx,dy] = clipGrad(dx,dy);
+    const hp = HP[key];
+    s.t += 1;
+
+    if(key==='sgd'){
+      s.x -= hp.lr*dx;
+      s.y -= hp.lr*dy;
+    } else if(key==='momentum'){
+      s.vx = hp.beta*s.vx - hp.lr*dx;
+      s.vy = hp.beta*s.vy - hp.lr*dy;
+      s.x += s.vx;
+      s.y += s.vy;
+    } else if(key==='rmsprop'){
+      s.sx = hp.decay*s.sx + (1-hp.decay)*dx*dx;
+      s.sy = hp.decay*s.sy + (1-hp.decay)*dy*dy;
+      s.x -= hp.lr*dx/(Math.sqrt(s.sx)+hp.eps);
+      s.y -= hp.lr*dy/(Math.sqrt(s.sy)+hp.eps);
+    } else if(key==='adam'){
+      s.mx = hp.b1*s.mx + (1-hp.b1)*dx;
+      s.my = hp.b1*s.my + (1-hp.b1)*dy;
+      s.vx = hp.b2*s.vx + (1-hp.b2)*dx*dx;
+      s.vy = hp.b2*s.vy + (1-hp.b2)*dy*dy;
+      const mxh = s.mx/(1-Math.pow(hp.b1,s.t));
+      const myh = s.my/(1-Math.pow(hp.b1,s.t));
+      const vxh = s.vx/(1-Math.pow(hp.b2,s.t));
+      const vyh = s.vy/(1-Math.pow(hp.b2,s.t));
+      s.x -= hp.lr*mxh/(Math.sqrt(vxh)+hp.eps);
+      s.y -= hp.lr*myh/(Math.sqrt(vyh)+hp.eps);
+    }
+
+    s.x = Math.max(DOMAIN.xmin*0.98, Math.min(DOMAIN.xmax*0.98, s.x));
+    s.y = Math.max(DOMAIN.ymin*0.98, Math.min(DOMAIN.ymax*0.98, s.y));
+    s.path.push([s.x,s.y]);
+
+    const speed = Math.sqrt(dx*dx+dy*dy);
+    if(speed < 0.0025 && s.t>25) s.done = true;
+    if(s.t > 420) s.done = true;
+  }
+
+  // ---------- app state ----------
+  let optimizers = {};
+  let active = { sgd:true, momentum:true, rmsprop:true, adam:true };
+  let running = false;
+  let animId = null;
+  let stepCount = 0;
+  let dragging = false;
+
+  function resetSims(x0, y0){
+    optimizers = {};
+    Object.keys(active).forEach(key=>{
+      optimizers[key] = makeOptimizer(key, x0, y0);
+    });
+    stepCount = 0;
+    running = true;
+    hint.classList.add('hidden');
+    if(!animId) tick();
+  }
+
+  function drawStartMarker(x0,y0){
+    const [sx,sy] = domainToScreen(x0,y0);
+    pathCtx.save();
+    pathCtx.strokeStyle = 'rgba(255,255,255,0.85)';
+    pathCtx.lineWidth = 1.4;
+    pathCtx.beginPath();
+    pathCtx.moveTo(sx-7, sy); pathCtx.lineTo(sx+7, sy);
+    pathCtx.moveTo(sx, sy-7); pathCtx.lineTo(sx, sy+7);
+    pathCtx.stroke();
+    pathCtx.restore();
+  }
+
+  let startPoint = null;
+
+  function render(){
+    pathCtx.clearRect(0,0,pathCanvas.width, pathCanvas.height);
+    if(startPoint) drawStartMarker(startPoint[0], startPoint[1]);
+
+    let minLoss = Infinity;
+    let activeCount = 0;
+
+    Object.keys(optimizers).forEach(key=>{
+      if(!active[key]) return;
+      const s = optimizers[key];
+      activeCount++;
+      const l = loss(s.x, s.y);
+      if(l < minLoss) minLoss = l;
+
+      // draw path
+      pathCtx.beginPath();
+      pathCtx.lineWidth = key==='sgd' ? 2.2 : 2.4;
+      pathCtx.strokeStyle = COLORS[key];
+      pathCtx.globalAlpha = key==='sgd' ? 0.9 : 0.85;
+      pathCtx.lineJoin='round';
+      pathCtx.lineCap='round';
+      for(let i=0;i<s.path.length;i++){
+        const [sx,sy] = domainToScreen(s.path[i][0], s.path[i][1]);
+        if(i===0) pathCtx.moveTo(sx,sy); else pathCtx.lineTo(sx,sy);
+      }
+      pathCtx.stroke();
+      pathCtx.globalAlpha = 1;
+
+      // draw current position marker
+      const [sx,sy] = domainToScreen(s.x, s.y);
+      pathCtx.beginPath();
+      pathCtx.arc(sx, sy, key==='sgd' ? 6.5 : 7, 0, Math.PI*2);
+      pathCtx.fillStyle = COLORS[key];
+      pathCtx.fill();
+      pathCtx.lineWidth = 1.6;
+      pathCtx.strokeStyle = 'rgba(255,255,255,0.9)';
+      pathCtx.stroke();
+    });
+
+    rStep.textContent = stepCount;
+    rLoss.textContent = isFinite(minLoss) ? minLoss.toFixed(3) : '–';
+    rActive.textContent = activeCount;
+  }
+
+  function tick(){
+    let anyRunning = false;
+    Object.keys(optimizers).forEach(key=>{
+      if(!active[key]) return;
+      const s = optimizers[key];
+      if(!s.done){
+        step(key, s);
+        anyRunning = true;
+      }
+    });
+    stepCount++;
+    render();
+    if(anyRunning){
+      animId = requestAnimationFrame(tick);
+    } else {
+      animId = null;
+      running = false;
+    }
+  }
+
+  // ---------- sizing ----------
+  function resize(){
+    const rect = wrap.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    [heatCanvas, pathCanvas].forEach(c=>{
+      c.width = rect.width * dpr;
+      c.height = rect.height * dpr;
+    });
+    heatCtx.scale(1,1);
+    renderHeatmap();
+    render();
+  }
+  window.addEventListener('resize', resize);
+
+  // ---------- interaction ----------
+  function getPointer(e){
+    const rect = pathCanvas.getBoundingClientRect();
+    const dpr = window.devicePixelRatio || 1;
+    const clientX = e.touches ? e.touches[0].clientX : e.clientX;
+    const clientY = e.touches ? e.touches[0].clientY : e.clientY;
+    const x = (clientX - rect.left) * dpr;
+    const y = (clientY - rect.top) * dpr;
+    return [x,y];
+  }
+
+  function startDrag(e){
+    dragging = true;
+    if(animId){ cancelAnimationFrame(animId); animId = null; }
+    const [sx,sy] = getPointer(e);
+    const [dx,dy] = screenToDomain(sx,sy);
+    startPoint = [dx,dy];
+    resetSims(dx,dy);
+    e.preventDefault();
+  }
+  function moveDrag(e){
+    if(!dragging) return;
+    const [sx,sy] = getPointer(e);
+    const [dx,dy] = screenToDomain(sx,sy);
+    startPoint = [dx,dy];
+    if(animId){ cancelAnimationFrame(animId); animId = null; }
+    resetSims(dx,dy);
+    e.preventDefault();
+  }
+  function endDrag(e){
+    dragging = false;
+  }
+
+  pathCanvas.addEventListener('mousedown', startDrag);
+  pathCanvas.addEventListener('mousemove', moveDrag);
+  window.addEventListener('mouseup', endDrag);
+  pathCanvas.addEventListener('touchstart', startDrag, {passive:false});
+  pathCanvas.addEventListener('touchmove', moveDrag, {passive:false});
+  pathCanvas.addEventListener('touchend', endDrag);
+
+  // ---------- legend toggles ----------
+  document.querySelectorAll('.toggle').forEach(btn=>{
+    btn.addEventListener('click', ()=>{
+      const key = btn.dataset.key;
+      active[key] = !active[key];
+      btn.classList.toggle('active', active[key]);
+      render();
+    });
+  });
+
+  document.getElementById('resetBtn').addEventListener('click', ()=>{
+    if(animId){ cancelAnimationFrame(animId); animId = null; }
+    optimizers = {};
+    startPoint = null;
+    stepCount = 0;
+    running = false;
+    pathCtx.clearRect(0,0,pathCanvas.width, pathCanvas.height);
+    rStep.textContent = '0';
+    rLoss.textContent = '–';
+    rActive.textContent = '0';
+    hint.classList.remove('hidden');
+  });
+
+  // ---------- init ----------
+  resize();
+})();
+</script>
+</body>
+</html>
